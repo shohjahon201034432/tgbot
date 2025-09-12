@@ -6,6 +6,8 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 from aiogram.utils import executor
 
+load_dotenv()
+
 API_TOKEN = os.getenv("7734446929:AAEMYPupJ72QnCYMKYGo9TOg6RDXR9HxK1E") # Bot token
 ADMIN_ID = int(os.getenv("5718626045"))
 BOT_USERNAME = os.getenv("@madridasia_bot") # Replace with your actual bot username
