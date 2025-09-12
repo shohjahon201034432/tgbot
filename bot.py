@@ -6,9 +6,9 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 from aiogram.utils import executor
 
-API_TOKEN = '7734446929:AAEMYPupJ72QnCYMKYGo9TOg6RDXR9HxK1E'  # Bot token
-ADMIN_ID = 5718626045  # Admin ID
-BOT_USERNAME = "@madridasia_bot"  # Replace with your actual bot username
+API_TOKEN = os.getenv("7734446929:AAEMYPupJ72QnCYMKYGo9TOg6RDXR9HxK1E") # Bot token
+ADMIN_ID = int(os.getenv("5718626045"))
+BOT_USERNAME = os.getenv("@madridasia_bot") # Replace with your actual bot username
 
 logging.basicConfig(level=logging.INFO)
 
