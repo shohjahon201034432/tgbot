@@ -5,12 +5,13 @@ import sqlite3
 import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
-from aiogram.filters import Command # Command filterni import qilish
+from aiogram.filters import Command
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardRemove
 )
+from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 # .env faylidan muhit o'zgaruvchilarini yuklash
@@ -25,8 +26,8 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 
 # Bot va dispatcherni ishga tushirish
-# Barcha matnlar uchun standart Markdown formatini o'rnatamiz
-bot = Bot(token=API_TOKEN, parse_mode=ParseMode.MARKDOWN)
+# Yangi versiyaga mos: DefaultBotProperties orqali parse_mode o'rnatish
+bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
 def init_db():
@@ -221,23 +222,21 @@ def get_user_display_name(username, phone, user_id):
 
 # --- HANDLERS ---
 
-# @dp.message(commands=['start']) qatorini @dp.message(Command("start")) ga o'zgartirdik.
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username
-    args = message.get_args()
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    ref_id = int(args[0]) if args and args[0].isdigit() else None
 
     add_user(user_id, username)
 
     # Referral logikasi: kutuvdagi referral ID'ni saqlash
-    if args and args.isdigit():
-        ref_id = int(args)
-        if ref_id != user_id and not get_user_phone(user_id) and not has_referral(user_id):
-            with sqlite3.connect('bot_db.sqlite3') as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE users SET pending_ref_id = ? WHERE user_id=?", (ref_id, user_id))
-                conn.commit()
+    if ref_id and ref_id != user_id and not get_user_phone(user_id) and not has_referral(user_id):
+        with sqlite3.connect('bot_db.sqlite3') as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET pending_ref_id = ? WHERE user_id=?", (ref_id, user_id))
+            conn.commit()
 
     display_name = get_user_display_name(username, get_user_phone(user_id), user_id)
 
@@ -263,7 +262,7 @@ async def start_handler(message: types.Message):
                 [InlineKeyboardButton(text=f"📢 {ch} ga obuna bo'lish", url=f"https://t.me/{ch.strip('@')}")]
                 for ch in channels
             ])
-            kb.add(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
+            kb.inline_keyboard.append([InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub")])
             await message.answer(
                 "🔗 *Avval quyidagi kanal va guruhlarga obuna bo'ling:*\n\n"
                 "Obunadan so'ng *'✅ Obunani tekshirish'* tugmasini bosing! 🚀",
@@ -493,16 +492,16 @@ async def callback_help_handler(call: types.CallbackQuery):
         "Bu bot orqali do'stlaringizni taklif qilib ball to'plashingiz mumkin! 😎\n\n"
         "🔍 *Bot qanday ishlaydi?*\n\n"
         "1️⃣ *Ro'yxatdan o'tish:*\n"
-        "   • /start buyrug'ini bosing\n"
-        "   • Kanal va guruhlarga obuna bo'ling\n"
-        "   • Telefon raqamingizni yuboring\n\n"
+        "   • /start buyrug'ini bosing\n"
+        "   • Kanal va guruhlarga obuna bo'ling\n"
+        "   • Telefon raqamingizni yuboring\n\n"
         "2️⃣ *Referral tizimi:*\n"
-        "   • Sizning maxsus linkingizni oling\n"
-        "   • Do'stlaringizga ulashing\n"
-        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
+        "   • Sizning maxsus linkingizni oling\n"
+        "   • Do'stlaringizga ulashing\n"
+        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
         "3️⃣ *Ball tizimi:*\n"
-        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
-        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
+        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
+        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
         "🎯 *Maqsad:* Ko'proq ball to'plang va top reytingda bo'ling!\n\n"
         "📞 *Yordam kerakmi?* Admin: @admin\n\n"
         "🚀 *Muvaffaqiyatlar tilaymiz!*"
@@ -716,9 +715,6 @@ async def main():
         logging.error("API_TOKEN muhit o'zgaruvchisi topilmadi.")
         return
     
-    # Bot obyektini yaratish va ParseMode.MARKDOWN ni o'rnatish
-    bot_instance = Bot(token=API_TOKEN, parse_mode=ParseMode.MARKDOWN)
-    
     # Bot ishga tushirilishidan oldin va keyin ishlaydigan funksiyalarni ro'yxatdan o'tkazish
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
@@ -731,7 +727,7 @@ async def main():
     print("⏳ Iltimos kuting...")
 
     # Yangilanishlarni qabul qilishni boshlash
-    await dp.start_polling(bot_instance)
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
     try:
