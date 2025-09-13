@@ -2,29 +2,31 @@ import asyncio
 import logging
 import random
 import sqlite3
+import os
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor  # <-- SHU YERGA ALMASHTIRILDI
+from aiogram.utils import executor
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardRemove
 )
 
-
-import os
-
+# Load environment variables
 API_TOKEN = os.getenv("API_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")
+# ADMIN_ID is read as a string from env, so we cast it to int
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 
+# Set up logging for better debugging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-logging.basicConfig(level=logging.INFO)
-
+# Initialize bot and dispatcher
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
 
 def init_db():
+    """Initializes the SQLite database and creates tables if they don't exist."""
     conn = sqlite3.connect('bot_db.sqlite3')
     cursor = conn.cursor()
     cursor.execute('''
@@ -56,12 +58,14 @@ init_db()
 # --- USER FUNCTIONS ---
 
 def get_channels():
+    """Retrieves all channel usernames from the database."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT username FROM channels")
         return [row[0] for row in cursor.fetchall()]
 
 def add_channel(username: str):
+    """Adds a new channel to the database."""
     username = username.strip()
     if not username.startswith('@'):
         username = '@' + username
@@ -75,6 +79,7 @@ def add_channel(username: str):
             return False
 
 def remove_channel(username: str):
+    """Removes a channel from the database."""
     username = username.strip()
     if not username.startswith('@'):
         username = '@' + username
@@ -84,18 +89,21 @@ def remove_channel(username: str):
         conn.commit()
 
 def user_exists(user_id: int):
+    """Checks if a user exists in the database."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,))
         return cursor.fetchone() is not None
 
 def has_referral(user_id: int):
+    """Checks if a user has already been referred by someone."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT 1 FROM referrals WHERE user_id=?", (user_id,))
         return cursor.fetchone() is not None
 
 def add_user(user_id: int, username: str = None):
+    """Adds a new user to the database if they don't exist."""
     if not user_exists(user_id):
         with sqlite3.connect('bot_db.sqlite3') as conn:
             cursor = conn.cursor()
@@ -103,12 +111,14 @@ def add_user(user_id: int, username: str = None):
             conn.commit()
 
 def set_user_phone(user_id: int, phone: str):
+    """Sets the phone number for a user."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET phone=? WHERE user_id=?", (phone, user_id))
         conn.commit()
 
 def get_user_phone(user_id: int):
+    """Retrieves the phone number of a user."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT phone FROM users WHERE user_id=?", (user_id,))
@@ -116,6 +126,7 @@ def get_user_phone(user_id: int):
         return res[0] if res else None
 
 def get_user_info(user_id: int):
+    """Retrieves a user's username and phone number."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT username, phone FROM users WHERE user_id=?", (user_id,))
@@ -123,6 +134,7 @@ def get_user_info(user_id: int):
         return res if res else (None, None)
 
 def add_referral(user_id: int, ref_id: int) -> bool:
+    """Handles the referral logic and updates scores for the referrer and their parent."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         if user_id == ref_id:
@@ -130,7 +142,11 @@ def add_referral(user_id: int, ref_id: int) -> bool:
         cursor.execute("SELECT ref_id FROM referrals WHERE user_id=?", (user_id,))
         if cursor.fetchone():
             return False
+        
+        # Add the new referral link
         cursor.execute("INSERT INTO referrals (user_id, ref_id) VALUES (?,?)", (user_id, ref_id))
+        
+        # Update scores for up to 2 levels
         current = ref_id
         level = 1
         while current and level <= 2:
@@ -139,10 +155,12 @@ def add_referral(user_id: int, ref_id: int) -> bool:
             row = cursor.fetchone()
             current = row[0] if row else None
             level += 1
+        
         conn.commit()
         return True
 
 def get_user_refs(user_id: int):
+    """Returns the number of referrals a user has."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT refs FROM users WHERE user_id=?", (user_id,))
@@ -150,18 +168,21 @@ def get_user_refs(user_id: int):
         return res[0] if res else 0
 
 def get_top_refs(limit=10):
+    """Returns the top users by referral count."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, username, phone, refs FROM users ORDER BY refs DESC LIMIT ?", (limit,))
         return cursor.fetchall()
 
 def get_all_users():
+    """Returns all users in the database."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, username, phone, refs FROM users ORDER BY user_id")
         return cursor.fetchall()
 
 async def is_subscribed(user_id: int):
+    """Checks if a user is subscribed to all required channels."""
     channels = get_channels()
     if not channels:
         return True
@@ -178,6 +199,7 @@ async def is_subscribed(user_id: int):
 # --- MENU FUNCTIONS ---
 
 def get_main_menu():
+    """Returns the main menu keyboard for the user."""
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton("🔗 Referral link", callback_data="get_ref"),
@@ -190,7 +212,7 @@ def get_main_menu():
     return kb
 
 def get_user_display_name(username, phone, user_id):
-    """Foydalanuvchi nomini ko'rsatish uchun"""
+    """Returns a formatted display name for the user."""
     if username:
         return f"@{username}"
     elif phone:
@@ -208,7 +230,7 @@ async def start(message: types.Message):
 
     add_user(user_id, username)
 
-    # Referral logic
+    # Referral logic: save pending referrer ID
     if args and args.isdigit():
         ref_id = int(args)
         if ref_id != user_id and not get_user_phone(user_id) and not has_referral(user_id):
@@ -217,7 +239,6 @@ async def start(message: types.Message):
                 cursor.execute("UPDATE users SET pending_ref_id = ? WHERE user_id=?", (ref_id, user_id))
                 conn.commit()
 
-    # Display name logic
     display_name = get_user_display_name(username, get_user_phone(user_id), user_id)
 
     # Welcome message
@@ -248,7 +269,7 @@ async def start(message: types.Message):
                 parse_mode="Markdown",
                 reply_markup=kb
             )
-            return
+        return
 
     # Check phone number
     phone = get_user_phone(user_id)
@@ -287,7 +308,7 @@ async def check_sub(call: types.CallbackQuery):
         await call.answer("✅ Obuna muvaffaqiyatli tasdiqlandi!")
         try:
             await call.message.delete()
-        except:
+        except Exception:
             pass
         
         phone = get_user_phone(user_id)
@@ -383,7 +404,7 @@ async def contact_handler(message: types.Message):
     )
     
     await message.answer(success_msg, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
-    await asyncio.sleep(1)  # Small delay for better UX
+    await asyncio.sleep(1)
     await message.answer("🚀 *Asosiy menyudan foydalaning:*", parse_mode="Markdown", reply_markup=get_main_menu())
 
 @dp.callback_query_handler(lambda c: c.data == 'get_ref')
@@ -422,7 +443,7 @@ async def callback_my_refs(call: types.CallbackQuery):
     display_name = get_user_display_name(username, phone, user_id)
     
     # Get user's rank
-    all_users = get_top_refs(1000)  # Get more users to find rank
+    all_users = get_top_refs(1000)
     user_rank = None
     for idx, (uid, _, _, _) in enumerate(all_users, 1):
         if uid == user_id:
@@ -541,7 +562,7 @@ async def random_handler(message: types.Message):
     args = message.get_args()
     try:
         n = int(args.strip())
-    except:
+    except (ValueError, IndexError):
         await message.answer("📥 Iltimos, to'g'ri son kiriting.\n\nMisol: `/random 5`", parse_mode="Markdown")
         return
 
@@ -579,7 +600,6 @@ async def allusers_handler(message: types.Message):
         status = "✅" if phone else "❌"
         msg += f"{status} {display_name} | 🏆 {refs} ball\n"
     
-    # If message is too long, split it
     if len(msg) > 4000:
         msgs = [msg[i:i+4000] for i in range(0, len(msg), 4000)]
         for m in msgs:
@@ -620,7 +640,6 @@ async def broadcast_handler(message: types.Message):
         await message.answer("🔐 Faqat adminlar uchun!")
         return
     
-    # Komanda va bo'sh joyni olib tashlab, faqat xabar matnini olish
     msg_text = message.text[len('/broadcast '):].strip()
     
     if not msg_text:
@@ -639,7 +658,7 @@ async def broadcast_handler(message: types.Message):
         try:
             await bot.send_message(user_id, msg_text)
             success += 1
-        except:
+        except Exception:
             fail += 1
             continue
     
@@ -678,35 +697,32 @@ async def errors_handler(update, exception):
 
 # --- STARTUP AND SHUTDOWN ---
 
-async def on_startup(_):
+async def on_startup(dp):
     logging.info("🚀 Bot ishga tushdi va foydalanuvchilarni kutmoqda!")
-    await bot.delete_webhook()  # Clear any existing webhook
-    
-    # Send startup message to admin
     try:
         await bot.send_message(ADMIN_ID, "🚀 *Bot muvaffaqiyatli ishga tushdi!*", parse_mode="Markdown")
-    except:
+    except Exception:
         pass
 
-async def on_shutdown(_):
+async def on_shutdown(dp):
     logging.info("Bot yopilmoqda...")
-    
-    # Send shutdown message to admin
     try:
         await bot.send_message(ADMIN_ID, "🛑 *Bot yopildi.*", parse_mode="Markdown")
-    except:
+    except Exception:
         pass
-    
-    await bot.session.close()
+    await dp.storage.close()
+    await dp.storage.wait_closed()
+    await bot.close()
     logging.info("Bot sessiyasi yopildi.")
 
 if __name__ == '__main__':
+    print("Bot ishga tushirilmoqda...")
+    print(f"📱 Bot username: @{BOT_USERNAME}")
+    print(f"👨‍💻 Admin ID: {ADMIN_ID}")
+    print("⏳ Iltimos kuting...")
+    
+    # This is the correct way to start the bot
     try:
-        print("🚀 Bot ishga tushirilmoqda...")
-        print(f"📱 Bot username: @{BOT_USERNAME}")
-        print(f"👨‍💻 Admin ID: {ADMIN_ID}")
-        print("⏳ Iltimos kuting...")
-        
         executor.start_polling(
             dp, 
             skip_updates=True, 
@@ -718,5 +734,3 @@ if __name__ == '__main__':
     except Exception as e:
         logging.error(f"❌ Bot ishga tushmadi: {e}")
         print(f"❌ Xatolik: {e}")
-
-
