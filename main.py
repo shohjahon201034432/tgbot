@@ -11,17 +11,18 @@ from aiogram.types import (
 )
 
 
-# Hardcoded configuration
-API_TOKEN = "7734446929:AAEMYPupJ72QnCYMKYGo9TOg6RDXR9HxK1E"
-ADMIN_ID = 5718626045
-BOT_USERNAME = "madridasia_bot"
+import os
+
+API_TOKEN = os.getenv("API_TOKEN")
+ADMIN_ID = os.getenv("ADMIN_ID")
+BOT_USERNAME = os.getenv("BOT_USERNAME")
+
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# --- DATABASE SETUP ---
 
 def init_db():
     conn = sqlite3.connect('bot_db.sqlite3')
@@ -619,38 +620,33 @@ async def broadcast_handler(message: types.Message):
         await message.answer("🔐 Faqat adminlar uchun!")
         return
     
-    # Get message text after command
-    msg_text = message.text[len('/broadcast'):].strip()
+    # Komanda va bo'sh joyni olib tashlab, faqat xabar matnini olish
+    msg_text = message.text[len('/broadcast '):].strip()
+    
     if not msg_text:
-        await message.answer("📝 Xabar matnini kiriting.\n\nMisol: `/broadcast Yangi yangilik!`", parse_mode="Markdown")
+        await message.answer("📥 Foydalanish: `/broadcast xabar matni`", parse_mode="Markdown")
         return
     
-    # Get all registered users
-    with sqlite3.connect('bot_db.sqlite3') as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT user_id FROM users WHERE phone IS NOT NULL")
-        users = [row[0] for row in cursor.fetchall()]
+    users = get_all_users()
+    if not users:
+        await message.answer("❌ Hali foydalanuvchilar yo'q.")
+        return
     
-    sent = 0
-    failed = 0
-    
-    await message.answer(f"📤 Xabar yuborish boshlandi... Jami: {len(users)} ta foydalanuvchi")
-    
-    for user_id in users:
+    success = 0
+    fail = 0
+    for u in users:
+        user_id = u[0]
         try:
-            await bot.send_message(user_id, msg_text, parse_mode="Markdown")
-            sent += 1
-            await asyncio.sleep(0.05)  # Small delay to avoid rate limiting
-        except Exception as e:
-            failed += 1
-            logging.error(f"Failed to send message to {user_id}: {e}")
+            await bot.send_message(user_id, msg_text)
+            success += 1
+        except:
+            fail += 1
+            continue
     
     await message.answer(
-        f"📊 *Xabar yuborish yakunlandi!*\n\n"
-        f"✅ Muvaffaqiyatli: {sent}\n"
-        f"❌ Muvaffaqiyatsiz: {failed}\n"
-        f"📈 Muvaffaqiyat foizi: {round(sent/(sent+failed)*100, 1)}%",
-        parse_mode="Markdown"
+        f"📢 Xabar yuborildi!\n\n"
+        f"✅ Muvaffaqiyatli: {success}\n"
+        f"❌ Xatolik: {fail}"
     )
 
 # --- DEFAULT HANDLER ---
