@@ -3,8 +3,8 @@ import logging
 import random
 import sqlite3
 import os
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.enums import ParseMode
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -13,17 +13,14 @@ from aiogram.types import (
 
 # Load environment variables
 API_TOKEN = os.getenv("API_TOKEN")
-# ADMIN_ID is read as a string from env, so we cast it to int
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 
 # Set up logging for better debugging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize bot and dispatcher
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
-
+# Initialize dispatcher
+dp = Dispatcher()
 
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
@@ -53,9 +50,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-
-# --- USER FUNCTIONS ---
+# --- DATABASE FUNCTIONS ---
 
 def get_channels():
     """Retrieves all channel usernames from the database."""
@@ -181,7 +176,9 @@ def get_all_users():
         cursor.execute("SELECT user_id, username, phone, refs FROM users ORDER BY user_id")
         return cursor.fetchall()
 
-async def is_subscribed(user_id: int):
+# --- AUXILIARY FUNCTIONS ---
+
+async def is_subscribed(bot: Bot, user_id: int):
     """Checks if a user is subscribed to all required channels."""
     channels = get_channels()
     if not channels:
@@ -195,8 +192,6 @@ async def is_subscribed(user_id: int):
             logging.error(f"Error checking subscription for {ch}: {e}")
             return False
     return True
-
-# --- MENU FUNCTIONS ---
 
 def get_main_menu():
     """Returns the main menu keyboard for the user."""
@@ -222,8 +217,8 @@ def get_user_display_name(username, phone, user_id):
 
 # --- HANDLERS ---
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
+@dp.message(commands=['start'])
+async def start_handler(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username
     args = message.get_args()
@@ -255,7 +250,7 @@ async def start(message: types.Message):
     await message.answer(welcome_msg, parse_mode="Markdown")
 
     # Check subscription
-    subscribed = await is_subscribed(user_id)
+    subscribed = await is_subscribed(message.bot, user_id)
     if not subscribed:
         channels = get_channels()
         if channels:
@@ -299,10 +294,10 @@ async def start(message: types.Message):
         )
         await message.answer(final_msg, parse_mode="Markdown", reply_markup=get_main_menu())
 
-@dp.callback_query_handler(lambda c: c.data == 'check_sub')
-async def check_sub(call: types.CallbackQuery):
+@dp.callback_query(F.data == 'check_sub')
+async def check_sub_handler(call: types.CallbackQuery):
     user_id = call.from_user.id
-    subscribed = await is_subscribed(user_id)
+    subscribed = await is_subscribed(call.bot, user_id)
     
     if subscribed:
         await call.answer("✅ Obuna muvaffaqiyatli tasdiqlandi!")
@@ -315,7 +310,7 @@ async def check_sub(call: types.CallbackQuery):
         if not phone:
             phone_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
             phone_kb.add(KeyboardButton("📱 Telefon raqamni yuborish", request_contact=True))
-            await bot.send_message(
+            await call.bot.send_message(
                 user_id,
                 "🎉 *Obuna tasdiqlandi!*\n\n"
                 "📞 Endi telefon raqamingizni yuboring:\n\n"
@@ -334,11 +329,11 @@ async def check_sub(call: types.CallbackQuery):
                 f"🔗 *Sizning referral linkingiz:*\n`{ref_link}`\n\n"
                 "Do'stlaringizni taklif qiling va ball to'plang! 😎"
             )
-            await bot.send_message(user_id, final_msg, parse_mode="Markdown", reply_markup=get_main_menu())
+            await call.bot.send_message(user_id, final_msg, parse_mode="Markdown", reply_markup=get_main_menu())
     else:
         await call.answer("❌ Hali barcha kanallarga obuna bo'lmadingiz! Iltimos, avval obuna bo'lib, keyin qayta urinib ko'ring.", show_alert=True)
 
-@dp.message_handler(content_types=types.ContentType.CONTACT)
+@dp.message(F.content_type == types.ContentType.CONTACT)
 async def contact_handler(message: types.Message):
     user_id = message.from_user.id
     
@@ -350,7 +345,7 @@ async def contact_handler(message: types.Message):
     previous_phone = get_user_phone(user_id)
 
     # Check subscription before accepting phone
-    if not await is_subscribed(user_id):
+    if not await is_subscribed(message.bot, user_id):
         await message.answer(
             "🚫 Avval kanal va guruhlarga obuna bo'ling!\n\n"
             "Obuna bo'lgandan keyin /start buyrug'ini qayta bosing.",
@@ -363,6 +358,7 @@ async def contact_handler(message: types.Message):
     # If updating phone number
     if previous_phone:
         await message.answer("📱 Telefon raqamingiz muvaffaqiyatli yangilandi! ✅", reply_markup=ReplyKeyboardRemove())
+        await asyncio.sleep(1)
         await message.answer("🔙 Asosiy menyuga qaytish uchun quyidagi tugmalarni ishlating:", reply_markup=get_main_menu())
         return
 
@@ -377,7 +373,7 @@ async def contact_handler(message: types.Message):
                 cursor.execute("UPDATE users SET pending_ref_id = NULL WHERE user_id=?", (user_id,))
                 conn.commit()
                 try:
-                    await bot.send_message(
+                    await message.bot.send_message(
                         ref_id, 
                         "🎉 *Yangi referral!*\n\n"
                         "Sizga yangi referral qo'shildi! Ballaringiz +1 ga oshdi! 🚀\n\n"
@@ -407,8 +403,8 @@ async def contact_handler(message: types.Message):
     await asyncio.sleep(1)
     await message.answer("🚀 *Asosiy menyudan foydalaning:*", parse_mode="Markdown", reply_markup=get_main_menu())
 
-@dp.callback_query_handler(lambda c: c.data == 'get_ref')
-async def callback_get_ref(call: types.CallbackQuery):
+@dp.callback_query(F.data == 'get_ref')
+async def callback_get_ref_handler(call: types.CallbackQuery):
     user_id = call.from_user.id
     phone = get_user_phone(user_id)
     
@@ -433,10 +429,10 @@ async def callback_get_ref(call: types.CallbackQuery):
     )
     
     await call.answer()
-    await bot.send_message(user_id, ref_msg, parse_mode="Markdown", reply_markup=get_main_menu())
+    await call.bot.send_message(user_id, ref_msg, parse_mode="Markdown", reply_markup=get_main_menu())
 
-@dp.callback_query_handler(lambda c: c.data == 'my_refs')
-async def callback_my_refs(call: types.CallbackQuery):
+@dp.callback_query(F.data == 'my_refs')
+async def callback_my_refs_handler(call: types.CallbackQuery):
     user_id = call.from_user.id
     refs = get_user_refs(user_id)
     username, phone = get_user_info(user_id)
@@ -464,10 +460,10 @@ async def callback_my_refs(call: types.CallbackQuery):
     )
     
     await call.answer()
-    await bot.send_message(user_id, stats_msg, parse_mode="Markdown", reply_markup=get_main_menu())
+    await call.bot.send_message(user_id, stats_msg, parse_mode="Markdown", reply_markup=get_main_menu())
 
-@dp.callback_query_handler(lambda c: c.data == 'top_refs')
-async def callback_top_refs(call: types.CallbackQuery):
+@dp.callback_query(F.data == 'top_refs')
+async def callback_top_refs_handler(call: types.CallbackQuery):
     top = get_top_refs(10)
     if not top:
         await call.answer("❌ Hali hech kim referral qilmagan!", show_alert=True)
@@ -484,63 +480,66 @@ async def callback_top_refs(call: types.CallbackQuery):
     msg += "\n💡 *Sizning o'rningizni yaxshilash uchun ko'proq do'stlaringizni taklif qiling!*"
     
     await call.answer()
-    await bot.send_message(call.from_user.id, msg, parse_mode="Markdown", reply_markup=get_main_menu())
+    await call.bot.send_message(call.from_user.id, msg, parse_mode="Markdown", reply_markup=get_main_menu())
 
-@dp.callback_query_handler(lambda c: c.data == 'help')
-async def callback_help(call: types.CallbackQuery):
+@dp.callback_query(F.data == 'help')
+async def callback_help_handler(call: types.CallbackQuery):
     help_msg = (
         "ℹ️ *Yordam bo'limi*\n\n"
         "Bu bot orqali do'stlaringizni taklif qilib ball to'plashingiz mumkin! 😎\n\n"
         "🔍 *Bot qanday ishlaydi?*\n\n"
         "1️⃣ *Ro'yxatdan o'tish:*\n"
-        "   • /start buyrug'ini bosing\n"
-        "   • Kanal va guruhlarga obuna bo'ling\n"
-        "   • Telefon raqamingizni yuboring\n\n"
+        "   • /start buyrug'ini bosing\n"
+        "   • Kanal va guruhlarga obuna bo'ling\n"
+        "   • Telefon raqamingizni yuboring\n\n"
         "2️⃣ *Referral tizimi:*\n"
-        "   • Sizning maxsus linkingizni oling\n"
-        "   • Do'stlaringizga ulashing\n"
-        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
+        "   • Sizning maxsus linkingizni oling\n"
+        "   • Do'stlaringizga ulashing\n"
+        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
         "3️⃣ *Ball tizimi:*\n"
-        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
-        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
+        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
+        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
         "🎯 *Maqsad:* Ko'proq ball to'plang va top reytingda bo'ling!\n\n"
         "📞 *Yordam kerakmi?* Admin: @admin\n\n"
         "🚀 *Muvaffaqiyatlar tilaymiz!*"
     )
     
     await call.answer()
-    await bot.send_message(call.from_user.id, help_msg, parse_mode="Markdown", reply_markup=get_main_menu())
+    await call.bot.send_message(call.from_user.id, help_msg, parse_mode="Markdown", reply_markup=get_main_menu())
 
 # --- ADMIN COMMANDS ---
 
-@dp.message_handler(commands=['addchannel'])
+@dp.message(commands=['addchannel'])
 async def addchannel_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
         return
-    args = message.get_args()
+    args = message.text.split()[1:]
     if not args:
         await message.answer("📥 Iltimos, kanal yoki guruh username'ini kiriting.\n\nMisol: `/addchannel @kanalim`", parse_mode="Markdown")
         return
-    success = add_channel(args)
+    
+    username = args[0]
+    success = add_channel(username)
     if success:
-        await message.answer(f"✅ Kanal/guruh `{args}` muvaffaqiyatli qo'shildi!")
+        await message.answer(f"✅ Kanal/guruh `{username}` muvaffaqiyatli qo'shildi!")
     else:
-        await message.answer(f"⚠️ Kanal/guruh `{args}` allaqachon ro'yxatda mavjud.")
+        await message.answer(f"⚠️ Kanal/guruh `{username}` allaqachon ro'yxatda mavjud.")
 
-@dp.message_handler(commands=['removechannel'])
+@dp.message(commands=['removechannel'])
 async def removechannel_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
         return
-    args = message.get_args()
+    args = message.text.split()[1:]
     if not args:
         await message.answer("📥 Iltimos, kanal yoki guruh username'ini kiriting.\n\nMisol: `/removechannel @kanalim`", parse_mode="Markdown")
         return
-    remove_channel(args)
-    await message.answer(f"🗑️ Kanal/guruh `{args}` ro'yxatdan olib tashlandi!", parse_mode="Markdown")
+    username = args[0]
+    remove_channel(username)
+    await message.answer(f"🗑️ Kanal/guruh `{username}` ro'yxatdan olib tashlandi!", parse_mode="Markdown")
 
-@dp.message_handler(commands=['channels'])
+@dp.message(commands=['channels'])
 async def channels_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
@@ -554,14 +553,14 @@ async def channels_handler(message: types.Message):
         msg += f"{i}. `{ch}`\n"
     await message.answer(msg, parse_mode="Markdown")
 
-@dp.message_handler(commands=['random'])
+@dp.message(commands=['random'])
 async def random_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
         return
-    args = message.get_args()
+    args = message.text.split()[1:]
     try:
-        n = int(args.strip())
+        n = int(args[0])
     except (ValueError, IndexError):
         await message.answer("📥 Iltimos, to'g'ri son kiriting.\n\nMisol: `/random 5`", parse_mode="Markdown")
         return
@@ -583,7 +582,7 @@ async def random_handler(message: types.Message):
         msg += f"{i}. {display_name} (ID: {u})\n"
     await message.answer(msg, parse_mode="Markdown")
 
-@dp.message_handler(commands=['allusers'])
+@dp.message(commands=['allusers'])
 async def allusers_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
@@ -607,7 +606,7 @@ async def allusers_handler(message: types.Message):
     else:
         await message.answer(msg, parse_mode="Markdown")
 
-@dp.message_handler(commands=['stats'])
+@dp.message(commands=['stats'])
 async def stats_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
@@ -634,7 +633,7 @@ async def stats_handler(message: types.Message):
     )
     await message.answer(stats_msg, parse_mode="Markdown")
 
-@dp.message_handler(commands=['broadcast'])
+@dp.message(commands=['broadcast'])
 async def broadcast_handler(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("🔐 Faqat adminlar uchun!")
@@ -656,7 +655,7 @@ async def broadcast_handler(message: types.Message):
     for u in users:
         user_id = u[0]
         try:
-            await bot.send_message(user_id, msg_text)
+            await message.bot.send_message(user_id, msg_text)
             success += 1
         except Exception:
             fail += 1
@@ -670,7 +669,7 @@ async def broadcast_handler(message: types.Message):
 
 # --- DEFAULT HANDLER ---
 
-@dp.message_handler()
+@dp.message()
 async def default_handler(message: types.Message):
     user_id = message.from_user.id
     phone = get_user_phone(user_id)
@@ -688,49 +687,47 @@ async def default_handler(message: types.Message):
             reply_markup=get_main_menu()
         )
 
-# --- ERROR HANDLER ---
-
-@dp.errors_handler()
-async def errors_handler(update, exception):
-    logging.error(f"Update {update} caused error {exception}")
-    return True
-
 # --- STARTUP AND SHUTDOWN ---
 
-async def on_startup(dp):
+async def on_startup(bot: Bot):
     logging.info("🚀 Bot ishga tushdi va foydalanuvchilarni kutmoqda!")
     try:
         await bot.send_message(ADMIN_ID, "🚀 *Bot muvaffaqiyatli ishga tushdi!*", parse_mode="Markdown")
     except Exception:
         pass
 
-async def on_shutdown(dp):
+async def on_shutdown(bot: Bot):
     logging.info("Bot yopilmoqda...")
     try:
         await bot.send_message(ADMIN_ID, "🛑 *Bot yopildi.*", parse_mode="Markdown")
     except Exception:
         pass
-    await dp.storage.close()
-    await dp.storage.wait_closed()
     await bot.close()
     logging.info("Bot sessiyasi yopildi.")
 
-if __name__ == '__main__':
+# --- MAIN EXECUTION ---
+
+async def main():
+    bot = Bot(token=API_TOKEN, parse_mode=ParseMode.HTML)
+    
+    # Register handlers for bot startup, shutdown, and errors
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+    
+    init_db()
+    
     print("Bot ishga tushirilmoqda...")
     print(f"📱 Bot username: @{BOT_USERNAME}")
     print(f"👨‍💻 Admin ID: {ADMIN_ID}")
     print("⏳ Iltimos kuting...")
-    
-    # This is the correct way to start the bot
+
+    # Start polling for updates
+    await dp.start_polling(bot, skip_updates=True)
+
+if __name__ == '__main__':
     try:
-        executor.start_polling(
-            dp, 
-            skip_updates=True, 
-            on_startup=on_startup, 
-            on_shutdown=on_shutdown
-        )
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n🛑 Bot to'xtatildi (Ctrl+C)")
+        logging.info("🛑 Bot to'xtatildi (Ctrl+C)")
     except Exception as e:
         logging.error(f"❌ Bot ishga tushmadi: {e}")
-        print(f"❌ Xatolik: {e}")
