@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
@@ -12,7 +14,6 @@ from aiogram.types import (
 )
 from aiogram.exceptions import TelegramBadRequest
 from dotenv import load_dotenv
-from flask import Flask, request
 
 # .env faylidan muhit o'zgaruvchilarini yuklash
 load_dotenv()
@@ -25,19 +26,18 @@ API_TOKEN = os.getenv("API_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 # Render muhiti uchun web app name olinadi
 WEB_APP_NAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+# Bot username
+BOT_USERNAME = os.getenv("BOT_USERNAME")
+if not BOT_USERNAME:
+    logging.error("BOT_USERNAME muhit o'zgaruvchisi topilmadi. Bot username'i kerak.")
 
-# Agar RENDER_EXTERNAL_HOSTNAME mavjud bo'lmasa, uni o'zgartiring
+# Agar RENDER_EXTERNAL_HOSTNAME mavjud bo'lmasa, u ishlamaydi
 if not WEB_APP_NAME:
     logging.error("RENDER_EXTERNAL_HOSTNAME muhit o'zgaruvchisi topilmadi. Webhook uchun manzil kerak.")
-    # Exit here to prevent bot from running without a URL.
 
 # Bot va dispatcher'ni ishga tushirish
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
-app = Flask(__name__)
-
-# Polling bilan bog'liq bo'lmagan qolgan kodlar (funksiyalar, database, etc.) o'zgarmaydi
-# Ular shu faylga main.py'dan ko'chiriladi.
 
 # --- DATABASE FUNKSIYALARI ---
 # (main.py'dagi get_channels, add_channel, remove_channel, user_exists,
@@ -161,7 +161,7 @@ def add_referral(user_id: int, ref_id: int) -> bool:
             level += 1
         
         conn.commit()
-        return True
+    return True
 
 def get_user_refs(user_id: int):
     with sqlite3.connect('bot_db.sqlite3') as conn:
@@ -181,6 +181,7 @@ def get_all_users():
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, username, phone, refs FROM users ORDER BY user_id")
         return cursor.fetchall()
+
 # --- END DATABASE FUNKSIYALARI ---
 
 # --- YORDAMCHI FUNKSIYALAR ---
@@ -222,10 +223,9 @@ def get_user_display_name(username, phone, user_id):
         return f"📱 {phone}"
     else:
         return f"ID: {user_id}"
-# --- END YORDAMCHI FUNKSIYALAR ---
 
 # --- HANDLERS ---
-# (main.py'dagi barcha handlerlar shu yerga ko'chiriladi)
+
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
@@ -283,7 +283,7 @@ async def start_handler(message: types.Message):
             reply_markup=phone_kb
         )
     else:
-        ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
+        ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
         final_msg = (
             f"🎉 *Tabriklaymiz, {display_name}!*\n\n"
             f"✅ Siz muvaffaqiyatli ro'yxatdan o'tdingiz!\n\n"
@@ -324,7 +324,7 @@ async def check_sub_handler(call: types.CallbackQuery):
         else:
             username, phone = get_user_info(user_id)
             display_name = get_user_display_name(username, phone, user_id)
-            ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
+            ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
             
             final_msg = (
                 f"🎉 *Tabriklaymiz, {display_name}!*\n\n"
@@ -382,7 +382,7 @@ async def contact_handler(message: types.Message):
 
     username, phone = get_user_info(user_id)
     display_name = get_user_display_name(username, phone, user_id)
-    ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
+    ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
     
     success_msg = (
         f"🎉 *Tabriklaymiz, {display_name}!*\n\n"
@@ -423,7 +423,7 @@ async def callback_get_ref_handler(call: types.CallbackQuery):
     
     username, phone = get_user_info(user_id)
     display_name = get_user_display_name(username, phone, user_id)
-    ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
+    ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
     refs_count = get_user_refs(user_id)
     
     ref_msg = (
@@ -695,35 +695,40 @@ async def default_handler(message: types.Message):
         )
 
 # --- BOTNI ISHGA TUSHIRISH ---
-WEBHOOK_URL = f"https://{WEB_APP_NAME}/"
+WEBHOOK_PATH = f"/{API_TOKEN}"
+WEBHOOK_URL = f"https://{WEB_APP_NAME}{WEBHOOK_PATH}"
 
-async def on_startup(dispatcher):
+async def on_startup(app):
     init_db()
-    logging.info("🚀 Webhook ishga tushirildi va ma'lumotlar bazasi tayyorlandi!")
+    logging.info("🚀 Bot ishga tushirildi va ma'lumotlar bazasi tayyorlandi!")
+    logging.info(f"✅ Webhook o'rnatilmoqda: {WEBHOOK_URL}")
     try:
-        await bot.set_webhook(url=WEBHOOK_URL)
+        await bot.set_webhook(url=WEBHOOK_URL, allowed_updates=dp.resolve_used_update_types())
         logging.info("✅ Webhook muvaffaqiyatli o'rnatildi!")
     except TelegramBadRequest as e:
         logging.error(f"❌ Webhook o'rnatishda xato: {e}")
-        # Log this error but don't stop the app. The app will receive no updates
-        # until the URL is reachable.
 
-@app.route('/', methods=['POST'])
-def webhook():
-    """Telegramdan kelgan yangilanishlarni qabul qilish uchun kirish nuqtasi."""
-    if request.method == 'POST':
-        update = types.Update.model_validate(request.json, context={'bot': bot})
-        try:
-            asyncio.run(dp.feed_update(bot, update))
-        except Exception as e:
-            logging.error(f"Xatolik: Yangilanishni qayta ishlashda xato yuz berdi: {e}")
-        return '', 200
-    return 'OK', 200
+async def on_shutdown(app):
+    logging.info("🛑 Bot o'chirilmoqda. Webhook o'chirilmoqda...")
+    await bot.delete_webhook()
+    await bot.session.close()
+    logging.info("✅ Webhook muvaffaqiyatli o'chirildi!")
 
-# Botni ishga tushirish uchun ushbu qism Render uchun mos
-if __name__ == '__main__':
-    logging.info("Flask server ishga tushirilmoqda...")
-    # Polling o'rniga webhook ishga tushirish
-    asyncio.run(on_startup(dp))
-    # Flask app'ni ishga tushirish
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 80)))
+async def main():
+    if not WEB_APP_NAME:
+        logging.error("RENDER_EXTERNAL_HOSTNAME topilmadi. Webhook rejimida ishga tushirish mumkin emas.")
+        return
+
+    app = web.Application()
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+    app.router.add_post(WEBHOOK_PATH, dp.get_web_app_func())
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host='0.0.0.0', port=int(os.getenv("PORT", 80)))
+    await site.start()
+    logging.info(f"🚀 Web server {site.name} da ishlamoqda...")
+
+if __name__ == "__main__":
+    asyncio.run(main())
