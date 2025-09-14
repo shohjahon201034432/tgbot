@@ -595,36 +595,18 @@ async def allusers_handler(message: types.Message):
         await message.answer("📋 Hozircha ro'yxatdan o'tgan foydalanuvchilar yo'q.")
         return
     
-    msg = "📋 *Barcha foydalanuvchilar:*\n\n"
-    for u in users:
-        user_id, username, phone, refs = u
-        display_name = get_user_display_name(username, phone, user_id)
-        status = "✅" if phone else "❌"
-        msg += f"{status} {display_name} | 🏆 {refs} ball\n"
-    
-  @dp.message(Command("allusers"))
-async def allusers_handler(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("🔐 Faqat adminlar uchun!")
-        return
-    
-    users = get_all_users()
-    if not users:
-        await message.answer("📋 Hozircha ro'yxatdan o'tgan foydalanuvchilar yo'q.")
-        return
-    
     # Ro'yxatni tayyorlash, formatlashsiz
-    lines = ["📋 Barcha foydalanuvchilar:\n"]
+    lines = ["📋 *Barcha foydalanuvchilar:*\n\n"]
     for u in users:
         user_id, username, phone, refs = u
         display_name = get_user_display_name(username, phone, user_id)
         status = "✅" if phone else "❌"
-        lines.append(f"{status} {display_name} | {refs} ball")
+        lines.append(f"{status} {display_name} | 🏆 {refs} ball")
     
     # Xabarni qismlarga bo'lish va yuborish
     current_msg = ""
     for line in lines:
-        if len(current_msg) + len(line) > 4000:
+        if len(current_msg) + len(line) + 1 > 4096:
             await message.answer(current_msg, parse_mode=ParseMode.MARKDOWN)
             current_msg = ""
         current_msg += line + "\n"
