@@ -14,6 +14,16 @@ from aiogram.types import (
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
+# --- RENDER DEPLOYMENT UCHUN TALABLAR ---
+# runtime.txt
+# python-3.11.8
+
+# requirements.txt
+# aiogram>=3.0.0
+# python-dotenv
+# flask
+# ----------------------------------------
+
 # .env faylidan muhit o'zgaruvchilarini yuklash
 load_dotenv()
 
@@ -201,13 +211,20 @@ async def is_subscribed(bot: Bot, user_id: int):
             return False
     return True
 
-def get_main_menu():
+def get_main_menu_keyboard():
     """Asosiy menyu klaviaturasini qaytaradi."""
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Referral link", callback_data="get_ref"),
          InlineKeyboardButton(text="📊 Statistikam", callback_data="my_refs")],
         [InlineKeyboardButton(text="🏆 Top 10", callback_data="top_refs"),
          InlineKeyboardButton(text="ℹ️ Yordam", callback_data="help")]
+    ])
+    return kb
+
+def get_menu_trigger_keyboard():
+    """Asosiy 'Menyu' tugmasi klaviaturasini qaytaradi."""
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
+        [KeyboardButton(text="Menyu")]
     ])
     return kb
 
@@ -296,7 +313,7 @@ async def start_handler(message: types.Message):
             "• Ikkinchi darajadagi taklif uchun ham +1 ball\n\n"
             "💰 Ko'proq ball to'plang va mukofotlarga ega bo'ling! 🏆"
         )
-        await message.answer(final_msg, reply_markup=get_main_menu())
+        await message.answer(final_msg, reply_markup=get_menu_trigger_keyboard())
 
 @dp.callback_query(F.data == 'check_sub')
 async def check_sub_handler(call: types.CallbackQuery):
@@ -333,7 +350,7 @@ async def check_sub_handler(call: types.CallbackQuery):
                 f"🔗 *Sizning referral linkingiz:*\n`{ref_link}`\n\n"
                 "Do'stlaringizni taklif qiling va ball to'plang! 😎"
             )
-            await call.bot.send_message(user_id, final_msg, reply_markup=get_main_menu())
+            await call.bot.send_message(user_id, final_msg, reply_markup=get_menu_trigger_keyboard())
     else:
         await call.answer("❌ Hali barcha kanallarga obuna bo'lmadingiz! Iltimos, avval obuna bo'lib, keyin qayta urinib ko'ring.", show_alert=True)
 
@@ -361,9 +378,7 @@ async def contact_handler(message: types.Message):
 
     # Telefon raqamini yangilash
     if previous_phone:
-        await message.answer("📱 Telefon raqamingiz muvaffaqiyatli yangilandi! ✅", reply_markup=ReplyKeyboardRemove())
-        await asyncio.sleep(1)
-        await message.answer("🔙 Asosiy menyuga qaytish uchun quyidagi tugmalarni ishlating:", reply_markup=get_main_menu())
+        await message.answer("📱 Telefon raqamingiz muvaffaqiyatli yangilandi! ✅", reply_markup=get_menu_trigger_keyboard())
         return
 
     # Kutuvdagi referralni qayta ishlash
@@ -402,9 +417,24 @@ async def contact_handler(message: types.Message):
         "💰 Ko'proq ball to'plang va mukofotlarga ega bo'ling! 🏆"
     )
     
-    await message.answer(success_msg, reply_markup=ReplyKeyboardRemove())
-    await asyncio.sleep(1)
-    await message.answer("🚀 *Asosiy menyudan foydalaning:*", reply_markup=get_main_menu())
+    await message.answer(success_msg, reply_markup=get_menu_trigger_keyboard())
+
+@dp.message(F.text == "Menyu")
+async def show_menu_handler(message: types.Message):
+    """Menyu tugmasini bosganda asosiy menyuni ko'rsatish."""
+    user_id = message.from_user.id
+    phone = get_user_phone(user_id)
+    
+    if not phone:
+        await message.answer(
+            "🚫 Siz hali ro'yxatdan o'tmadingiz!\n\n"
+            "Iltimos, /start buyrug'ini bosing va ro'yxatdan o'ting. 😊",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    await message.answer("🚀 *Asosiy menyu:*", reply_markup=get_main_menu_keyboard())
+
 
 @dp.callback_query(F.data == 'get_ref')
 async def callback_get_ref_handler(call: types.CallbackQuery):
@@ -432,7 +462,7 @@ async def callback_get_ref_handler(call: types.CallbackQuery):
     )
     
     await call.answer()
-    await call.bot.send_message(user_id, ref_msg, reply_markup=get_main_menu())
+    await call.message.edit_text(ref_msg, reply_markup=get_main_menu_keyboard())
 
 @dp.callback_query(F.data == 'my_refs')
 async def callback_my_refs_handler(call: types.CallbackQuery):
@@ -463,7 +493,7 @@ async def callback_my_refs_handler(call: types.CallbackQuery):
     )
     
     await call.answer()
-    await call.bot.send_message(user_id, stats_msg, reply_markup=get_main_menu())
+    await call.message.edit_text(stats_msg, reply_markup=get_main_menu_keyboard())
 
 @dp.callback_query(F.data == 'top_refs')
 async def callback_top_refs_handler(call: types.CallbackQuery):
@@ -483,7 +513,7 @@ async def callback_top_refs_handler(call: types.CallbackQuery):
     msg += "\n💡 *Sizning o'rningizni yaxshilash uchun ko'proq do'stlaringizni taklif qiling!*"
     
     await call.answer()
-    await call.bot.send_message(call.from_user.id, msg, reply_markup=get_main_menu())
+    await call.message.edit_text(msg, reply_markup=get_main_menu_keyboard())
 
 @dp.callback_query(F.data == 'help')
 async def callback_help_handler(call: types.CallbackQuery):
@@ -492,23 +522,23 @@ async def callback_help_handler(call: types.CallbackQuery):
         "Bu bot orqali do'stlaringizni taklif qilib ball to'plashingiz mumkin! 😎\n\n"
         "🔍 *Bot qanday ishlaydi?*\n\n"
         "1️⃣ *Ro'yxatdan o'tish:*\n"
-        "   • /start buyrug'ini bosing\n"
-        "   • Kanal va guruhlarga obuna bo'ling\n"
-        "   • Telefon raqamingizni yuboring\n\n"
+        "   • /start buyrug'ini bosing\n"
+        "   • Kanal va guruhlarga obuna bo'ling\n"
+        "   • Telefon raqamingizni yuboring\n\n"
         "2️⃣ *Referral tizimi:*\n"
-        "   • Sizning maxsus linkingizni oling\n"
-        "   • Do'stlaringizga ulashing\n"
-        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
+        "   • Sizning maxsus linkingizni oling\n"
+        "   • Do'stlaringizga ulashing\n"
+        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
         "3️⃣ *Ball tizimi:*\n"
-        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
-        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
+        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
+        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
         "🎯 *Maqsad:* Ko'proq ball to'plang va top reytingda bo'ling!\n\n"
         "📞 *Yordam kerakmi?* Admin: @admin\n\n"
         "🚀 *Muvaffaqiyatlar tilaymiz!*"
     )
     
     await call.answer()
-    await call.bot.send_message(call.from_user.id, help_msg, reply_markup=get_main_menu())
+    await call.message.edit_text(help_msg, reply_markup=get_main_menu_keyboard())
 
 # --- ADMIN BUYRUQLARI ---
 
@@ -685,13 +715,14 @@ async def default_handler(message: types.Message):
     if not phone:
         await message.answer(
             "🚫 Siz hali ro'yxatdan o'tmadingiz!\n\n"
-            "Iltimos, /start buyrug'ini bosing va ro'yxatdan o'ting. 😊"
+            "Iltimos, /start buyrug'ini bosing va ro'yxatdan o'ting. 😊",
+            reply_markup=ReplyKeyboardRemove()
         )
     else:
         await message.answer(
             "🤖 *Noto'g'ri buyruq!*\n\n"
-            "Quyidagi tugmalardan foydalaning yoki /start buyrug'ini bosing:",
-            reply_markup=get_main_menu()
+            "Asosiy menyuga kirish uchun 'Menyu' tugmasidan foydalaning.",
+            reply_markup=get_menu_trigger_keyboard()
         )
 
 # --- BOTNI ISHGA TUSHIRISH VA O'CHIRISH ---
@@ -715,12 +746,10 @@ async def on_shutdown(bot: Bot):
 # --- ASOSIY IJRO ---
 
 async def main():
-    # Botni ishga tushirish uchun API_TOKEN mavjudligini tekshirish
     if not API_TOKEN:
         logging.error("API_TOKEN muhit o'zgaruvchisi topilmadi.")
         return
     
-    # Bot ishga tushirilishidan oldin va keyin ishlaydigan funksiyalarni ro'yxatdan o'tkazish
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
     
@@ -731,7 +760,6 @@ async def main():
     print(f"👨‍💻 Admin ID: {ADMIN_ID}")
     print("⏳ Iltimos kuting...")
 
-    # Yangilanishlarni qabul qilishni boshlash
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
