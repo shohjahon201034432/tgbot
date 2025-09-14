@@ -496,16 +496,16 @@ async def callback_help_handler(call: types.CallbackQuery):
         "Bu bot orqali do'stlaringizni taklif qilib ball to'plashingiz mumkin! 😎\n\n"
         "🔍 *Bot qanday ishlaydi?*\n\n"
         "1️⃣ *Ro'yxatdan o'tish:*\n"
-        "   • /start buyrug'ini bosing\n"
-        "   • Kanal va guruhlarga obuna bo'ling\n"
-        "   • Telefon raqamingizni yuboring\n\n"
+        "   • /start buyrug'ini bosing\n"
+        "   • Kanal va guruhlarga obuna bo'ling\n"
+        "   • Telefon raqamingizni yuboring\n\n"
         "2️⃣ *Referral tizimi:*\n"
-        "   • Sizning maxsus linkingizni oling\n"
-        "   • Do'stlaringizga ulashing\n"
-        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
+        "   • Sizning maxsus linkingizni oling\n"
+        "   • Do'stlaringizga ulashing\n"
+        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
         "3️⃣ *Ball tizimi:*\n"
-        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
-        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
+        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
+        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
         "🎯 *Maqsad:* Ko'proq ball to'plang va top reytingda bo'ling!\n\n"
         "📞 *Yordam kerakmi?* Admin: @admin\n\n"
         "🚀 *Muvaffaqiyatlar tilaymiz!*"
@@ -696,40 +696,46 @@ async def default_handler(message: types.Message):
 WEBHOOK_PATH = f"/{API_TOKEN}"
 WEBHOOK_URL = f"https://{WEB_APP_NAME}{WEBHOOK_PATH}"
 
+# This on_startup function is an async handler that will be automatically called by aiohttp.
 async def on_startup(app):
+    # Initializes the database.
     init_db()
     logging.info("🚀 Bot ishga tushirildi va ma'lumotlar bazasi tayyorlandi!")
     logging.info(f"✅ Webhook o'rnatilmoqda: {WEBHOOK_URL}")
     try:
+        # Sets the bot's webhook URL.
         await bot.set_webhook(url=WEBHOOK_URL, allowed_updates=dp.resolve_used_update_types())
         logging.info("✅ Webhook muvaffaqiyatli o'rnatildi!")
     except TelegramBadRequest as e:
         logging.error(f"❌ Webhook o'rnatishda xato: {e}")
 
+# This on_shutdown function is an async handler that will be automatically called by aiohttp.
 async def on_shutdown(app):
     logging.info("🛑 Bot o'chirilmoqda. Webhook o'chirilmoqda...")
+    # Deletes the webhook before shutting down.
     await bot.delete_webhook()
+    # Closes the bot's session to free up resources.
     await bot.session.close()
     logging.info("✅ Webhook muvaffaqiyatli o'chirildi!")
 
-async def main():
+# The main entry point for the application.
+def main():
     if not WEB_APP_NAME:
         logging.error("RENDER_EXTERNAL_HOSTNAME topilmadi. Webhook rejimida ishga tushirish mumkin emas.")
         return
 
+    # Creates the aiohttp application.
     app = web.Application()
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-    # This line has been corrected for aiogram 3.x to fix the AttributeError.
-    # The SimpleRequestHandler class is now used to create the webhook handler.
-    # It requires the dispatcher and bot instances as arguments.
+    
+    # Correctly adds the webhook handler to the application router.
     app.router.add_post(WEBHOOK_PATH, SimpleRequestHandler(dispatcher=dp, bot=bot))
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, host='0.0.0.0', port=int(os.getenv("PORT", 80)))
-    await site.start()
-    logging.info(f"🚀 Web server {site.name} da ishlamoqda...")
+    
+    # Uses web.run_app to start the server, which handles the entire lifecycle
+    # including graceful shutdown and keeping the event loop running.
+    web.run_app(app, host='0.0.0.0', port=int(os.getenv("PORT", 80)))
+    logging.info("🚀 Web server da ishlamoqda...")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
