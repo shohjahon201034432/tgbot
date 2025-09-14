@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 # --- RENDER DEPLOYMENT UCHUN TALABLAR ---
 # runtime.txt
 # python-3.11.8
-
 # requirements.txt
 # aiogram>=3.0.0
 # python-dotenv
@@ -31,12 +30,12 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Bot tokenini, admin ID va bot username'ini muhit o'zgaruvchilaridan olish
+# Iltimos, bu o'zgaruvchilarni .env faylingizda to'g'ri o'rnatganingizga ishonch hosil qiling
 API_TOKEN = os.getenv("API_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 
 # Bot va dispatcherni ishga tushirish
-# Yangi versiyaga mos: DefaultBotProperties orqali parse_mode o'rnatish
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
@@ -522,16 +521,16 @@ async def callback_help_handler(call: types.CallbackQuery):
         "Bu bot orqali do'stlaringizni taklif qilib ball to'plashingiz mumkin! 😎\n\n"
         "🔍 *Bot qanday ishlaydi?*\n\n"
         "1️⃣ *Ro'yxatdan o'tish:*\n"
-        "   • /start buyrug'ini bosing\n"
-        "   • Kanal va guruhlarga obuna bo'ling\n"
-        "   • Telefon raqamingizni yuboring\n\n"
+        "   • /start buyrug'ini bosing\n"
+        "   • Kanal va guruhlarga obuna bo'ling\n"
+        "   • Telefon raqamingizni yuboring\n\n"
         "2️⃣ *Referral tizimi:*\n"
-        "   • Sizning maxsus linkingizni oling\n"
-        "   • Do'stlaringizga ulashing\n"
-        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
+        "   • Sizning maxsus linkingizni oling\n"
+        "   • Do'stlaringizga ulashing\n"
+        "   • Ular ro'yxatdan o'tganda ball oling\n\n"
         "3️⃣ *Ball tizimi:*\n"
-        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
-        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
+        "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
+        "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
         "🎯 *Maqsad:* Ko'proq ball to'plang va top reytingda bo'ling!\n\n"
         "📞 *Yordam kerakmi?* Admin: @admin\n\n"
         "🚀 *Muvaffaqiyatlar tilaymiz!*"
