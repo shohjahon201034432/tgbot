@@ -1,27 +1,18 @@
 import asyncio
 import logging
-import random
-import sqlite3
 import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.client.default import DefaultBotProperties
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardRemove
 )
-from aiogram.client.default import DefaultBotProperties
+from aiogram.exceptions import TelegramBadRequest
 from dotenv import load_dotenv
-
-# --- RENDER DEPLOYMENT UCHUN TALABLAR ---
-# runtime.txt
-# python-3.11.8
-# requirements.txt
-# aiogram>=3.0.0
-# python-dotenv
-# flask
-# ----------------------------------------
+from flask import Flask, request
 
 # .env faylidan muhit o'zgaruvchilarini yuklash
 load_dotenv()
@@ -29,18 +20,33 @@ load_dotenv()
 # Loglashni sozlash
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Bot tokenini, admin ID va bot username'ini muhit o'zgaruvchilaridan olish
-# Iltimos, bu o'zgaruvchilarni .env faylingizda to'g'ri o'rnatganingizga ishonch hosil qiling
+# Bot tokeni va admin ID'ni olish
 API_TOKEN = os.getenv("API_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-BOT_USERNAME = os.getenv("BOT_USERNAME")
+# Render muhiti uchun web app name olinadi
+WEB_APP_NAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 
-# Bot va dispatcherni ishga tushirish
+# Agar RENDER_EXTERNAL_HOSTNAME mavjud bo'lmasa, uni o'zgartiring
+if not WEB_APP_NAME:
+    logging.error("RENDER_EXTERNAL_HOSTNAME muhit o'zgaruvchisi topilmadi. Webhook uchun manzil kerak.")
+    # Exit here to prevent bot from running without a URL.
+
+# Bot va dispatcher'ni ishga tushirish
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
+app = Flask(__name__)
+
+# Polling bilan bog'liq bo'lmagan qolgan kodlar (funksiyalar, database, etc.) o'zgarmaydi
+# Ular shu faylga main.py'dan ko'chiriladi.
+
+# --- DATABASE FUNKSIYALARI ---
+# (main.py'dagi get_channels, add_channel, remove_channel, user_exists,
+# has_referral, add_user, set_user_phone, get_user_phone, get_user_info,
+# add_referral, get_user_refs, get_top_refs, get_all_users, etc.) funksiyalarni
+# shu yerga nusxalash
+import sqlite3
 
 def init_db():
-    """SQLite ma'lumotlar bazasini ishga tushiradi va jadvallarni yaratadi."""
     conn = sqlite3.connect('bot_db.sqlite3')
     cursor = conn.cursor()
     cursor.execute('''
@@ -67,17 +73,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- DATABASE FUNKSIYALARI ---
-
 def get_channels():
-    """Ma'lumotlar bazasidan barcha kanal nomlarini oladi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT username FROM channels")
         return [row[0] for row in cursor.fetchall()]
 
 def add_channel(username: str):
-    """Ma'lumotlar bazasiga yangi kanal qo'shadi."""
     username = username.strip()
     if not username.startswith('@'):
         username = '@' + username
@@ -91,7 +93,6 @@ def add_channel(username: str):
             return False
 
 def remove_channel(username: str):
-    """Ma'lumotlar bazasidan kanalni o'chiradi."""
     username = username.strip()
     if not username.startswith('@'):
         username = '@' + username
@@ -101,21 +102,18 @@ def remove_channel(username: str):
         conn.commit()
 
 def user_exists(user_id: int):
-    """Ma'lumotlar bazasida foydalanuvchi mavjudligini tekshiradi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,))
         return cursor.fetchone() is not None
 
 def has_referral(user_id: int):
-    """Foydalanuvchining referral linki orqali kelganligini tekshiradi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT 1 FROM referrals WHERE user_id=?", (user_id,))
         return cursor.fetchone() is not None
 
 def add_user(user_id: int, username: str = None):
-    """Yangi foydalanuvchini ma'lumotlar bazasiga qo'shadi, agar u mavjud bo'lmasa."""
     if not user_exists(user_id):
         with sqlite3.connect('bot_db.sqlite3') as conn:
             cursor = conn.cursor()
@@ -123,14 +121,12 @@ def add_user(user_id: int, username: str = None):
             conn.commit()
 
 def set_user_phone(user_id: int, phone: str):
-    """Foydalanuvchining telefon raqamini o'rnatadi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET phone=? WHERE user_id=?", (phone, user_id))
         conn.commit()
 
 def get_user_phone(user_id: int):
-    """Foydalanuvchining telefon raqamini oladi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT phone FROM users WHERE user_id=?", (user_id,))
@@ -138,7 +134,6 @@ def get_user_phone(user_id: int):
         return res[0] if res else None
 
 def get_user_info(user_id: int):
-    """Foydalanuvchining username va telefon raqamini oladi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT username, phone FROM users WHERE user_id=?", (user_id,))
@@ -146,7 +141,6 @@ def get_user_info(user_id: int):
         return res if res else (None, None)
 
 def add_referral(user_id: int, ref_id: int) -> bool:
-    """Referral logikasini boshqaradi va ballarni yangilaydi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         if user_id == ref_id:
@@ -155,10 +149,8 @@ def add_referral(user_id: int, ref_id: int) -> bool:
         if cursor.fetchone():
             return False
         
-        # Yangi referralni qo'shish
         cursor.execute("INSERT INTO referrals (user_id, ref_id) VALUES (?,?)", (user_id, ref_id))
         
-        # 2 darajagacha ballarni yangilash
         current = ref_id
         level = 1
         while current and level <= 2:
@@ -172,7 +164,6 @@ def add_referral(user_id: int, ref_id: int) -> bool:
         return True
 
 def get_user_refs(user_id: int):
-    """Foydalanuvchining referral sonini qaytaradi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT refs FROM users WHERE user_id=?", (user_id,))
@@ -180,23 +171,22 @@ def get_user_refs(user_id: int):
         return res[0] if res else 0
 
 def get_top_refs(limit=10):
-    """Referral soni bo'yicha top foydalanuvchilarni qaytaradi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, username, phone, refs FROM users ORDER BY refs DESC LIMIT ?", (limit,))
         return cursor.fetchall()
 
 def get_all_users():
-    """Barcha foydalanuvchilarni ma'lumotlar bazasidan qaytaradi."""
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, username, phone, refs FROM users ORDER BY user_id")
         return cursor.fetchall()
+# --- END DATABASE FUNKSIYALARI ---
 
 # --- YORDAMCHI FUNKSIYALAR ---
+import random
 
 async def is_subscribed(bot: Bot, user_id: int):
-    """Foydalanuvchi barcha kerakli kanallarga obuna bo'lganligini tekshiradi."""
     channels = get_channels()
     if not channels:
         return True
@@ -211,7 +201,6 @@ async def is_subscribed(bot: Bot, user_id: int):
     return True
 
 def get_main_menu_keyboard():
-    """Asosiy menyu klaviaturasini qaytaradi."""
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Referral link", callback_data="get_ref"),
          InlineKeyboardButton(text="📊 Statistikam", callback_data="my_refs")],
@@ -221,23 +210,22 @@ def get_main_menu_keyboard():
     return kb
 
 def get_menu_trigger_keyboard():
-    """Asosiy 'Menyu' tugmasi klaviaturasini qaytaradi."""
     kb = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
         [KeyboardButton(text="Menyu")]
     ])
     return kb
 
 def get_user_display_name(username, phone, user_id):
-    """Foydalanuvchi uchun formatlangan ismni qaytaradi."""
     if username:
         return f"@{username}"
     elif phone:
         return f"📱 {phone}"
     else:
         return f"ID: {user_id}"
+# --- END YORDAMCHI FUNKSIYALAR ---
 
 # --- HANDLERS ---
-
+# (main.py'dagi barcha handlerlar shu yerga ko'chiriladi)
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
@@ -247,7 +235,6 @@ async def start_handler(message: types.Message):
 
     add_user(user_id, username)
 
-    # Referral logikasi: kutuvdagi referral ID'ni saqlash
     if ref_id and ref_id != user_id and not get_user_phone(user_id) and not has_referral(user_id):
         with sqlite3.connect('bot_db.sqlite3') as conn:
             cursor = conn.cursor()
@@ -256,7 +243,6 @@ async def start_handler(message: types.Message):
 
     display_name = get_user_display_name(username, get_user_phone(user_id), user_id)
 
-    # Salomlashish xabari
     welcome_msg = (
         "🎉 *Xush kelibsiz, {}!* 🎉\n\n"
         "Bu bot orqali do'stlaringizni taklif qilib, ball to'plashingiz mumkin! 😎\n\n"
@@ -269,7 +255,6 @@ async def start_handler(message: types.Message):
 
     await message.answer(welcome_msg)
 
-    # Obunani tekshirish
     subscribed = await is_subscribed(message.bot, user_id)
     if not subscribed:
         channels = get_channels()
@@ -286,7 +271,6 @@ async def start_handler(message: types.Message):
             )
         return
 
-    # Telefon raqamini tekshirish
     phone = get_user_phone(user_id)
     if not phone:
         phone_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, keyboard=[
@@ -299,8 +283,7 @@ async def start_handler(message: types.Message):
             reply_markup=phone_kb
         )
     else:
-        # Foydalanuvchi to'liq ro'yxatdan o'tgan
-        ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+        ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
         final_msg = (
             f"🎉 *Tabriklaymiz, {display_name}!*\n\n"
             f"✅ Siz muvaffaqiyatli ro'yxatdan o'tdingiz!\n\n"
@@ -341,7 +324,7 @@ async def check_sub_handler(call: types.CallbackQuery):
         else:
             username, phone = get_user_info(user_id)
             display_name = get_user_display_name(username, phone, user_id)
-            ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+            ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
             
             final_msg = (
                 f"🎉 *Tabriklaymiz, {display_name}!*\n\n"
@@ -364,7 +347,6 @@ async def contact_handler(message: types.Message):
     phone = message.contact.phone_number
     previous_phone = get_user_phone(user_id)
 
-    # Obunani tekshirish
     if not await is_subscribed(message.bot, user_id):
         await message.answer(
             "🚫 Avval kanal va guruhlarga obuna bo'ling!\n\n"
@@ -375,12 +357,10 @@ async def contact_handler(message: types.Message):
 
     set_user_phone(user_id, phone)
 
-    # Telefon raqamini yangilash
     if previous_phone:
         await message.answer("📱 Telefon raqamingiz muvaffaqiyatli yangilandi! ✅", reply_markup=get_menu_trigger_keyboard())
         return
 
-    # Kutuvdagi referralni qayta ishlash
     with sqlite3.connect('bot_db.sqlite3') as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT pending_ref_id FROM users WHERE user_id=?", (user_id,))
@@ -400,10 +380,9 @@ async def contact_handler(message: types.Message):
                 except Exception as e:
                     logging.error(f"Error notifying referrer {ref_id}: {e}")
 
-    # Muvaffaqiyat xabari
     username, phone = get_user_info(user_id)
     display_name = get_user_display_name(username, phone, user_id)
-    ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+    ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
     
     success_msg = (
         f"🎉 *Tabriklaymiz, {display_name}!*\n\n"
@@ -420,7 +399,6 @@ async def contact_handler(message: types.Message):
 
 @dp.message(F.text == "Menyu")
 async def show_menu_handler(message: types.Message):
-    """Menyu tugmasini bosganda asosiy menyuni ko'rsatish."""
     user_id = message.from_user.id
     phone = get_user_phone(user_id)
     
@@ -434,7 +412,6 @@ async def show_menu_handler(message: types.Message):
 
     await message.answer("🚀 *Asosiy menyu:*", reply_markup=get_main_menu_keyboard())
 
-
 @dp.callback_query(F.data == 'get_ref')
 async def callback_get_ref_handler(call: types.CallbackQuery):
     user_id = call.from_user.id
@@ -446,7 +423,7 @@ async def callback_get_ref_handler(call: types.CallbackQuery):
     
     username, phone = get_user_info(user_id)
     display_name = get_user_display_name(username, phone, user_id)
-    ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
+    ref_link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start={user_id}"
     refs_count = get_user_refs(user_id)
     
     ref_msg = (
@@ -470,7 +447,6 @@ async def callback_my_refs_handler(call: types.CallbackQuery):
     username, phone = get_user_info(user_id)
     display_name = get_user_display_name(username, phone, user_id)
     
-    # Foydalanuvchi reytingini olish
     all_users = get_top_refs(1000)
     user_rank = None
     for idx, (uid, _, _, _) in enumerate(all_users, 1):
@@ -538,8 +514,6 @@ async def callback_help_handler(call: types.CallbackQuery):
     
     await call.answer()
     await call.message.edit_text(help_msg, reply_markup=get_main_menu_keyboard())
-
-# --- ADMIN BUYRUQLARI ---
 
 @dp.message(Command("addchannel"))
 async def addchannel_handler(message: types.Message):
@@ -624,7 +598,6 @@ async def allusers_handler(message: types.Message):
         await message.answer("📋 Hozircha ro'yxatdan o'tgan foydalanuvchilar yo'q.")
         return
     
-    # Ro'yxatni tayyorlash, formatlashsiz
     lines = ["📋 *Barcha foydalanuvchilar:*\n\n"]
     for u in users:
         user_id, username, phone, refs = u
@@ -632,7 +605,6 @@ async def allusers_handler(message: types.Message):
         status = "✅" if phone else "❌"
         lines.append(f"{status} {display_name} | 🏆 {refs} ball")
     
-    # Xabarni qismlarga bo'lish va yuborish
     current_msg = ""
     for line in lines:
         if len(current_msg) + len(line) + 1 > 4096:
@@ -704,8 +676,6 @@ async def broadcast_handler(message: types.Message):
         f"❌ Xatolik: {fail}"
     )
 
-# --- DEFAULT HANDLER ---
-
 @dp.message()
 async def default_handler(message: types.Message):
     user_id = message.from_user.id
@@ -724,47 +694,36 @@ async def default_handler(message: types.Message):
             reply_markup=get_menu_trigger_keyboard()
         )
 
-# --- BOTNI ISHGA TUSHIRISH VA O'CHIRISH ---
+# --- BOTNI ISHGA TUSHIRISH ---
+WEBHOOK_URL = f"https://{WEB_APP_NAME}/"
 
-async def on_startup(bot: Bot):
-    logging.info("🚀 Bot ishga tushdi va foydalanuvchilarni kutmoqda!")
-    try:
-        await bot.send_message(ADMIN_ID, "🚀 *Bot muvaffaqiyatli ishga tushdi!*")
-    except Exception:
-        pass
-
-async def on_shutdown(bot: Bot):
-    logging.info("Bot yopilmoqda...")
-    try:
-        await bot.send_message(ADMIN_ID, "🛑 *Bot yopildi.*")
-    except Exception:
-        pass
-    await bot.close()
-    logging.info("Bot sessiyasi yopildi.")
-
-# --- ASOSIY IJRO ---
-
-async def main():
-    if not API_TOKEN:
-        logging.error("API_TOKEN muhit o'zgaruvchisi topilmadi.")
-        return
-    
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-    
+async def on_startup(dispatcher):
     init_db()
-    
-    print("Bot ishga tushirilmoqda...")
-    print(f"📱 Bot username: @{BOT_USERNAME}")
-    print(f"👨‍💻 Admin ID: {ADMIN_ID}")
-    print("⏳ Iltimos kuting...")
-
-    await dp.start_polling(bot)
-
-if __name__ == '__main__':
+    logging.info("🚀 Webhook ishga tushirildi va ma'lumotlar bazasi tayyorlandi!")
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logging.info("🛑 Bot to'xtatildi (Ctrl+C)")
-    except Exception as e:
-        logging.error(f"❌ Bot ishga tushmadi: {e}")
+        await bot.set_webhook(url=WEBHOOK_URL)
+        logging.info("✅ Webhook muvaffaqiyatli o'rnatildi!")
+    except TelegramBadRequest as e:
+        logging.error(f"❌ Webhook o'rnatishda xato: {e}")
+        # Log this error but don't stop the app. The app will receive no updates
+        # until the URL is reachable.
+
+@app.route('/', methods=['POST'])
+def webhook():
+    """Telegramdan kelgan yangilanishlarni qabul qilish uchun kirish nuqtasi."""
+    if request.method == 'POST':
+        update = types.Update.model_validate(request.json, context={'bot': bot})
+        try:
+            asyncio.run(dp.feed_update(bot, update))
+        except Exception as e:
+            logging.error(f"Xatolik: Yangilanishni qayta ishlashda xato yuz berdi: {e}")
+        return '', 200
+    return 'OK', 200
+
+# Botni ishga tushirish uchun ushbu qism Render uchun mos
+if __name__ == '__main__':
+    logging.info("Flask server ishga tushirilmoqda...")
+    # Polling o'rniga webhook ishga tushirish
+    asyncio.run(on_startup(dp))
+    # Flask app'ni ishga tushirish
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 80)))
