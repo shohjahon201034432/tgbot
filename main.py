@@ -507,7 +507,7 @@ async def callback_help_handler(call: types.CallbackQuery):
         "   • To'g'ridan-to'g'ri taklif: +1 ball\n"
         "   • Ikkinchi darajadagi taklif: +1 ball\n\n"
         "🎯 *Maqsad:* Ko'proq ball to'plang va top reytingda bo'ling!\n\n"
-        "📞 *Yordam kerakmi?* Admin: @admin\n\n"
+        "📞 *Yordam kerakmi?* Admin: @murojat_adm\n\n"
         "🚀 *Muvaffaqiyatlar tilaymiz!*"
     )
     
