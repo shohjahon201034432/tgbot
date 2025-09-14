@@ -15,6 +15,9 @@ from aiogram.types import (
 from aiogram.exceptions import TelegramBadRequest
 from dotenv import load_dotenv
 
+# Import the correct webhook handler for aiogram 3.x
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler
+
 # .env faylidan muhit o'zgaruvchilarini yuklash
 load_dotenv()
 
@@ -718,7 +721,9 @@ async def main():
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     # This line has been corrected for aiogram 3.x to fix the AttributeError.
-    app.router.add_post(WEBHOOK_PATH, dp.get_aiohttp_handler())
+    # The SimpleRequestHandler class is now used to create the webhook handler.
+    # It requires the dispatcher and bot instances as arguments.
+    app.router.add_post(WEBHOOK_PATH, SimpleRequestHandler(dispatcher=dp, bot=bot))
 
     runner = web.AppRunner(app)
     await runner.setup()
