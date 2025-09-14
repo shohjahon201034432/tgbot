@@ -40,10 +40,6 @@ bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MAR
 dp = Dispatcher()
 
 # --- DATABASE FUNKSIYALARI ---
-# (main.py'dagi get_channels, add_channel, remove_channel, user_exists,
-# has_referral, add_user, set_user_phone, get_user_phone, get_user_info,
-# add_referral, get_user_refs, get_top_refs, get_all_users, etc.) funksiyalarni
-# shu yerga nusxalash
 import sqlite3
 
 def init_db():
@@ -665,7 +661,6 @@ async def broadcast_handler(message: types.Message):
         user_id = u[0]
         try:
             await message.bot.send_message(user_id, msg_text)
-            success += 1
         except Exception:
             fail += 1
             continue
@@ -722,7 +717,8 @@ async def main():
     app = web.Application()
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-    app.router.add_post(WEBHOOK_PATH, dp.get_web_app_func())
+    # This line has been corrected for aiogram 3.x to fix the AttributeError.
+    app.router.add_post(WEBHOOK_PATH, dp.get_aiohttp_handler())
 
     runner = web.AppRunner(app)
     await runner.setup()
